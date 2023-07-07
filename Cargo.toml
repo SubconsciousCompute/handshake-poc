@@ -1,0 +1,14 @@
+[package]
+name = "handshake"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aes = "0.8.3"
+hex-literal = "0.4.1"
+hkdf = "0.12.3"
+hmac = "0.12.1"
+p256 = { version = "0.13.2", features = ["ecdh"] }
+rand = "0.8.5"
+rand_core = "0.6.4"
+sha2 = "0.10.7"
