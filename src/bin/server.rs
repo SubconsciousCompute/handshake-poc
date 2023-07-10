@@ -7,7 +7,7 @@ const PRESHARED_KEY: [u8; 32] = [
     222, 114, 46, 192, 160, 146, 236, 57, 87, 223, 204, 36, 127, 189, 34, 182,
     136, 147, 168, 126, 49, 22, 89, 195, 205, 10, 131, 203, 42, 150, 223, 225,
 ];
-const AUTHORIZED: &[u8] = "Authorized!".as_bytes();
+const AUTHORIZED: &str = "Authorized!";
 
 fn main() {
     for stream in TcpListener::bind("127.0.0.1:3012").unwrap().incoming() {
@@ -36,11 +36,11 @@ fn main() {
 
             websocket
                 .write_message(Message::Binary(
-                    handshake.encrypt(AUTHORIZED.to_vec()).unwrap(),
+                    handshake.encrypt_text(AUTHORIZED).unwrap(),
                 ))
                 .unwrap();
 
-            println!("Authorized!");
+            println!("{AUTHORIZED}");
         });
     }
 }

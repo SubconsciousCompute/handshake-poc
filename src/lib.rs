@@ -67,20 +67,23 @@ impl Handshake {
         Ok(*self.auth_msg.as_ref().ok_or(())? == self.decypt(encrypted)?)
     }
 
-    pub fn encrypt(&self, bytes: Vec<u8>) -> Result<Vec<u8>, ()> {
+    fn encrypt(&self, bytes: Vec<u8>) -> Result<Vec<u8>, ()> {
         let cipher = self.cipher.as_ref().ok_or(())?;
         let mut encrypted = bytes;
-
-        let orig_len = encrypted.len();
-        encrypted.resize(orig_len + BLOCK_SIZE - (orig_len % BLOCK_SIZE), 0);
 
         for chunk in encrypted.chunks_mut(BLOCK_SIZE) {
             cipher.encrypt_block(Block::from_mut_slice(chunk));
         }
 
-        encrypted.resize(orig_len, 0);
-
         Ok(encrypted)
+    }
+
+    pub fn encrypt_text(&self, text: &str) -> Result<Vec<u8>, ()> {
+        let mut text_bytes = text.as_bytes().to_vec();
+        let orig_len = text_bytes.len();
+        text_bytes.resize(orig_len + BLOCK_SIZE - (orig_len % BLOCK_SIZE), 32);
+
+        self.encrypt(text_bytes)
     }
 
     pub fn decypt(&self, bytes: Vec<u8>) -> Result<Vec<u8>, ()> {
