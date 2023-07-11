@@ -1,55 +1,56 @@
+use std::io::{self, prelude::*};
 use std::{net::TcpListener, thread::spawn};
 
-use handshake::Handshake;
-use tungstenite::{accept, Message};
+use aes::{cipher::BlockDecrypt, Block};
+use handshake::{Handshake, HandshakeError};
+use thiserror::Error;
 
-const PRESHARED_KEY: [u8; 32] = [
-    222, 114, 46, 192, 160, 146, 236, 57, 87, 223, 204, 36, 127, 189, 34, 182,
-    136, 147, 168, 126, 49, 22, 89, 195, 205, 10, 131, 203, 42, 150, 223, 225,
+const BLOCK_SIZE: usize = 16;
+
+const SIGNING_KEY: [u8; 32] = [
+    113, 42, 194, 252, 108, 15, 145, 212, 169, 60, 154, 2, 4, 113, 212, 245,
+    97, 91, 65, 222, 175, 245, 186, 75, 213, 245, 190, 165, 180, 44, 188, 120,
 ];
-const AUTHORIZED: &str = "Authorized!";
+
+#[derive(Debug, Error)]
+enum StreamError {
+    #[error(transparent)]
+    IOError(#[from] io::Error),
+
+    #[error(transparent)]
+    HandShakeError(#[from] HandshakeError),
+}
 
 fn main() {
-    for stream in TcpListener::bind("127.0.0.1:3012")
+    for mut stream in TcpListener::bind("127.0.0.1:3000")
         .unwrap()
         .incoming()
         .flatten()
     {
-        spawn(move || {
-            println!("Connection Received: {}", stream.peer_addr().unwrap());
+        spawn(move || -> Result<(), StreamError> {
+            let peer_addr = stream.peer_addr().unwrap();
+            println!("Connection Received: {peer_addr}");
 
-            let mut websocket = accept(stream).unwrap();
-            let mut handshake = Handshake::new(PRESHARED_KEY);
+            let mut handshake = Handshake::new(&SIGNING_KEY);
 
-            if let Message::Binary(pub_key) = websocket.read_message().unwrap()
-            {
-                handshake.diffie_hellman(&pub_key);
-            } else {
-                return;
-            }
+            let mut pub_key = [0; 129];
+            stream.read_exact(&mut pub_key)?;
 
-            websocket
-                .write_message(Message::Binary(handshake.public_key()))
-                .unwrap();
+            let cipher = handshake.handshake(&pub_key)?;
 
-            if let Message::Binary(auth) = websocket.read_message().unwrap() {
-                if handshake.verify(auth).is_err() {
-                    return;
-                }
-            } else {
-                return;
-            }
+            stream.write_all(&handshake.public_key())?;
 
-            websocket
-                .write_message(Message::Binary(
-                    handshake.encrypt_text(AUTHORIZED).unwrap(),
-                ))
-                .unwrap();
+            println!("{peer_addr}: Key Exchange Complete!");
 
             loop {
-                if let Ok(Message::Binary(msg)) = websocket.read_message() {
-                    println!("{}", &handshake.decrypt_text(msg).unwrap());
-                }
+                let mut buf = [0; BLOCK_SIZE];
+                stream.read_exact(&mut buf)?;
+                cipher.decrypt_block(Block::from_mut_slice(&mut buf));
+
+                println!(
+                    "{peer_addr}: {}",
+                    String::from_utf8_lossy(&buf).trim()
+                );
             }
         });
     }
