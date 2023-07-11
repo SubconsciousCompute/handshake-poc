@@ -1,5 +1,11 @@
-use std::io::{self, prelude::*, stdin};
-use std::net::TcpStream;
+use std::{
+    io::{
+        self,
+        prelude::{Read, Write},
+        stdin,
+    },
+    net::TcpStream,
+};
 
 use aes::{cipher::BlockEncrypt, Block};
 use handshake::{Handshake, HandshakeError};
