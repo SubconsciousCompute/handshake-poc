@@ -10,14 +10,20 @@ const PRESHARED_KEY: [u8; 32] = [
 const AUTHORIZED: &str = "Authorized!";
 
 fn main() {
-    for stream in TcpListener::bind("127.0.0.1:3012").unwrap().incoming() {
+    for stream in TcpListener::bind("127.0.0.1:3012")
+        .unwrap()
+        .incoming()
+        .flatten()
+    {
         spawn(move || {
-            let mut websocket = accept(stream.unwrap()).unwrap();
+            println!("Connection Received: {}", stream.peer_addr().unwrap());
+
+            let mut websocket = accept(stream).unwrap();
             let mut handshake = Handshake::new(PRESHARED_KEY);
 
             if let Message::Binary(pub_key) = websocket.read_message().unwrap()
             {
-                handshake.dh(&pub_key);
+                handshake.diffie_hellman(&pub_key);
             } else {
                 return;
             }
@@ -40,7 +46,11 @@ fn main() {
                 ))
                 .unwrap();
 
-            println!("{AUTHORIZED}");
+            loop {
+                if let Ok(Message::Binary(msg)) = websocket.read_message() {
+                    println!("{}", &handshake.decrypt_text(msg).unwrap());
+                }
+            }
         });
     }
 }

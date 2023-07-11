@@ -1,3 +1,5 @@
+use std::io::stdin;
+
 use handshake::Handshake;
 use tungstenite::{connect, Message};
 use url::Url;
@@ -19,7 +21,7 @@ fn main() {
         .unwrap();
 
     if let Message::Binary(pub_key) = websocket.read_message().unwrap() {
-        handshake.dh(&pub_key);
+        handshake.diffie_hellman(&pub_key);
     } else {
         return;
     }
@@ -29,14 +31,19 @@ fn main() {
         .unwrap();
 
     if let Message::Binary(msg) = websocket.read_message().unwrap() {
-        if handshake
-            .decypt(msg)
-            .unwrap()
-            .iter()
-            .zip(AUTHORIZED.as_bytes().iter())
-            .all(|(b1, b2)| b1 == b2)
-        {
-            println!("{AUTHORIZED}");
+        if handshake.decrypt_text(msg).unwrap() != AUTHORIZED {
+            return;
+        }
+    } else {
+        return;
+    }
+
+    loop {
+        let mut line = String::new();
+        if stdin().read_line(&mut line).is_ok() {
+            _ = websocket.write_message(Message::Binary(
+                handshake.encrypt_text(&line).unwrap(),
+            ));
         }
     }
 }

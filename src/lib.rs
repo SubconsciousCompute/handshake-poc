@@ -1,3 +1,5 @@
+use std::string::FromUtf8Error;
+
 use aes::{
     cipher::{BlockDecrypt, BlockEncrypt},
     Aes256, Block,
@@ -7,14 +9,24 @@ use hmac::{Hmac, Mac};
 use p256::{ecdh::EphemeralSecret, PublicKey};
 use rand_core::OsRng;
 use sha2::Sha256;
+use thiserror::Error;
 
 const BLOCK_SIZE: usize = 16;
 
 pub struct Handshake {
     pre_shared_key: [u8; 32],
     private_key: EphemeralSecret,
-    pub cipher: Option<Aes256>,
+    cipher: Option<Aes256>,
     auth_msg: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Error)]
+pub enum HandshakeError {
+    #[error("Handshake Incomplete")]
+    HandshakeIncomplete,
+
+    #[error(transparent)]
+    FromUtf8Error(#[from] FromUtf8Error),
 }
 
 impl Handshake {
@@ -31,7 +43,7 @@ impl Handshake {
         self.private_key.public_key().to_sec1_bytes().to_vec()
     }
 
-    pub fn dh(&mut self, pub_key: &[u8]) {
+    pub fn diffie_hellman(&mut self, pub_key: &[u8]) {
         let shared_secret = self
             .private_key
             .diffie_hellman(&PublicKey::from_sec1_bytes(pub_key).unwrap());
@@ -59,16 +71,28 @@ impl Handshake {
         );
     }
 
-    pub fn auth(&self) -> Result<Vec<u8>, ()> {
-        self.encrypt(self.auth_msg.as_ref().ok_or(())?.clone())
+    pub fn auth(&self) -> Result<Vec<u8>, HandshakeError> {
+        self.encrypt(
+            self.auth_msg
+                .as_ref()
+                .ok_or(HandshakeError::HandshakeIncomplete)?
+                .clone(),
+        )
     }
 
-    pub fn verify(&self, encrypted: Vec<u8>) -> Result<bool, ()> {
-        Ok(*self.auth_msg.as_ref().ok_or(())? == self.decypt(encrypted)?)
+    pub fn verify(&self, encrypted: Vec<u8>) -> Result<bool, HandshakeError> {
+        Ok(*self
+            .auth_msg
+            .as_ref()
+            .ok_or(HandshakeError::HandshakeIncomplete)?
+            == self.decrypt(encrypted)?)
     }
 
-    fn encrypt(&self, bytes: Vec<u8>) -> Result<Vec<u8>, ()> {
-        let cipher = self.cipher.as_ref().ok_or(())?;
+    fn encrypt(&self, bytes: Vec<u8>) -> Result<Vec<u8>, HandshakeError> {
+        let cipher = self
+            .cipher
+            .as_ref()
+            .ok_or(HandshakeError::HandshakeIncomplete)?;
         let mut encrypted = bytes;
 
         for chunk in encrypted.chunks_mut(BLOCK_SIZE) {
@@ -78,28 +102,37 @@ impl Handshake {
         Ok(encrypted)
     }
 
-    pub fn encrypt_text(&self, text: &str) -> Result<Vec<u8>, ()> {
+    pub fn encrypt_text(&self, text: &str) -> Result<Vec<u8>, HandshakeError> {
         let mut text_bytes = text.as_bytes().to_vec();
-        let orig_len = text_bytes.len();
-        text_bytes.resize(orig_len + BLOCK_SIZE - (orig_len % BLOCK_SIZE), 32);
+        text_bytes.resize(
+            text_bytes.len() + BLOCK_SIZE - (text_bytes.len() % BLOCK_SIZE),
+            32,
+        );
 
         self.encrypt(text_bytes)
     }
 
-    pub fn decypt(&self, bytes: Vec<u8>) -> Result<Vec<u8>, ()> {
-        let cipher = self.cipher.as_ref().ok_or(())?;
+    fn decrypt(&self, bytes: Vec<u8>) -> Result<Vec<u8>, HandshakeError> {
+        let cipher = self
+            .cipher
+            .as_ref()
+            .ok_or(HandshakeError::HandshakeIncomplete)?;
         let mut decrypted = bytes;
-
-        let orig_len = decrypted.len();
-        decrypted.resize(orig_len + BLOCK_SIZE - (orig_len % BLOCK_SIZE), 0);
 
         for chunk in decrypted.chunks_mut(BLOCK_SIZE) {
             cipher.decrypt_block(Block::from_mut_slice(chunk));
         }
 
-        decrypted.resize(orig_len, 0);
-
         Ok(decrypted)
+    }
+
+    pub fn decrypt_text(
+        &self,
+        bytes: Vec<u8>,
+    ) -> Result<String, HandshakeError> {
+        Ok(String::from_utf8(self.decrypt(bytes)?)?
+            .trim_end()
+            .to_owned())
     }
 }
 
