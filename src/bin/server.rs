@@ -27,37 +27,43 @@ enum StreamError {
     HandShakeError(#[from] HandshakeError),
 }
 
+const SERVER_ADDR: &str = "127.0.0.1:3000";
+
 fn main() {
-    for mut stream in TcpListener::bind("127.0.0.1:3000")
-        .unwrap()
-        .incoming()
-        .flatten()
-    {
-        spawn(move || -> Result<(), StreamError> {
-            let peer_addr = stream.peer_addr().unwrap();
-            println!("Connection Received: {peer_addr}");
+    match TcpListener::bind(SERVER_ADDR) {
+        Ok(listener) => {
+            for mut stream in listener.incoming().flatten() {
+                spawn(move || -> Result<(), StreamError> {
+                    let peer_addr = stream
+                        .peer_addr()
+                        .map_or("Peer".to_string(), |a| a.to_string());
 
-            let mut handshake = Handshake::new(&SIGNING_KEY);
+                    println!("Connection Received: {peer_addr}");
 
-            let mut pub_key = [0; 129];
-            stream.read_exact(&mut pub_key)?;
+                    let mut handshake = Handshake::new(&SIGNING_KEY)?;
 
-            let cipher = handshake.handshake(&pub_key)?;
+                    let mut pub_key = [0; 129];
+                    stream.read_exact(&mut pub_key)?;
 
-            stream.write_all(&handshake.public_key())?;
+                    let cipher = handshake.handshake(&pub_key)?;
 
-            println!("{peer_addr}: Key Exchange Complete!");
+                    stream.write_all(&handshake.public_key())?;
 
-            loop {
-                let mut buf = [0; BLOCK_SIZE];
-                stream.read_exact(&mut buf)?;
-                cipher.decrypt_block(Block::from_mut_slice(&mut buf));
+                    println!("{peer_addr}: Key Exchange Complete!");
 
-                println!(
-                    "{peer_addr}: {}",
-                    String::from_utf8_lossy(&buf).trim()
-                );
+                    loop {
+                        let mut buf = [0; BLOCK_SIZE];
+                        stream.read_exact(&mut buf)?;
+                        cipher.decrypt_block(Block::from_mut_slice(&mut buf));
+
+                        println!(
+                            "{peer_addr}: {}",
+                            String::from_utf8_lossy(&buf).trim()
+                        );
+                    }
+                });
             }
-        });
+        }
+        Err(err) => println!("Error binding to {SERVER_ADDR}: {err}"),
     }
 }

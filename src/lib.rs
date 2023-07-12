@@ -1,5 +1,5 @@
-use aes::Aes256;
-use hkdf::Hkdf;
+use aes::{cipher, Aes256};
+use hkdf::{self, Hkdf};
 use p256::{
     ecdh::EphemeralSecret,
     ecdsa::{
@@ -20,22 +20,28 @@ pub struct Handshake {
 
 #[derive(Debug, Error)]
 pub enum HandshakeError {
-    #[error("Wrong Public Key Length")]
+    #[error("Invalid length for Public Key")]
     WrongPublicKeyLength,
 
     #[error(transparent)]
-    InvalidSignature(#[from] ecdsa::Error),
+    InvalidKey(#[from] ecdsa::Error),
+
+    #[error(transparent)]
+    AesKeyInvalidLength(#[from] cipher::InvalidLength),
+
+    #[error("Invalid length for HKDF Key")]
+    HkdfKeyInvalidLength,
 
     #[error(transparent)]
     InvalidPublicKey(#[from] elliptic_curve::Error),
 }
 
 impl Handshake {
-    pub fn new(signing_key: &[u8]) -> Self {
-        Self {
-            signing_key: SigningKey::from_slice(signing_key).unwrap(),
+    pub fn new(signing_key: &[u8]) -> Result<Self, HandshakeError> {
+        Ok(Self {
+            signing_key: SigningKey::from_slice(signing_key)?,
             private_key: EphemeralSecret::random(&mut OsRng),
-        }
+        })
     }
 
     pub fn public_key(&self) -> [u8; 129] {
@@ -57,10 +63,9 @@ impl Handshake {
             return Err(HandshakeError::WrongPublicKeyLength);
         }
 
-        self.signing_key.verifying_key().verify(
-            &pub_key[..65],
-            &Signature::from_slice(&pub_key[65..]).unwrap(),
-        )?;
+        self.signing_key
+            .verifying_key()
+            .verify(&pub_key[..65], &Signature::from_slice(&pub_key[65..])?)?;
 
         let shared_secret = self
             .private_key
@@ -68,11 +73,12 @@ impl Handshake {
         let h = Hkdf::<Sha256>::new(None, shared_secret.raw_secret_bytes());
 
         let mut enc_key = [0; 32];
-        h.expand(&[0; 32], &mut enc_key).unwrap();
+        h.expand(&[0; 32], &mut enc_key)
+            .map_err(|_| HandshakeError::HkdfKeyInvalidLength)?;
 
         Ok({
             use aes::cipher::KeyInit;
-            Aes256::new_from_slice(&enc_key).unwrap()
+            Aes256::new_from_slice(&enc_key)?
         })
     }
 }

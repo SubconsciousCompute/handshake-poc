@@ -27,26 +27,34 @@ enum StreamError {
     HandShakeError(#[from] HandshakeError),
 }
 
+const SERVER_ADDR: &str = "127.0.0.1:3000";
+
 fn main() -> Result<(), StreamError> {
-    let mut stream = TcpStream::connect("127.0.0.1:3000").unwrap();
-    println!("Connection Established: {}", stream.peer_addr().unwrap());
+    match TcpStream::connect(SERVER_ADDR) {
+        Ok(mut stream) => {
+            println!("Connection Established: {SERVER_ADDR}");
 
-    let mut handshake = Handshake::new(&SIGNING_KEY);
+            let mut handshake = Handshake::new(&SIGNING_KEY)?;
 
-    stream.write_all(&handshake.public_key())?;
+            stream.write_all(&handshake.public_key())?;
 
-    let mut pub_key = [0; 129];
-    stream.read_exact(&mut pub_key)?;
+            let mut pub_key = [0; 129];
+            stream.read_exact(&mut pub_key)?;
 
-    let cipher = handshake.handshake(&pub_key)?;
+            let cipher = handshake.handshake(&pub_key)?;
 
-    println!("Key Exchange Complete!");
+            println!("Key Exchange Complete!");
 
-    loop {
-        let mut buf = [32; BLOCK_SIZE];
-        _ = stdin().read(&mut buf)?;
-        cipher.encrypt_block(Block::from_mut_slice(&mut buf));
+            loop {
+                let mut buf = [32; BLOCK_SIZE];
+                _ = stdin().read(&mut buf)?;
+                cipher.encrypt_block(Block::from_mut_slice(&mut buf));
 
-        stream.write_all(&buf)?;
+                stream.write_all(&buf)?;
+            }
+        }
+        Err(err) => println!("Error connecting to {SERVER_ADDR}: {err}"),
     }
+
+    Ok(())
 }
