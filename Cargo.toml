@@ -5,7 +5,9 @@ edition = "2021"
 
 [dependencies]
 aes = "0.8.3"
+env_logger = "0.10.0"
 hkdf = "0.12.3"
+log = "0.4.19"
 p256 = { version = "0.13.2", features = ["ecdh", "ecdsa-core"] }
 rand_core = "0.6.4"
 sha2 = "0.10.7"

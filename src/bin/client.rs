@@ -9,6 +9,7 @@ use std::{
 
 use aes::{cipher::BlockEncrypt, Block};
 use handshake::{Handshake, HandshakeError};
+use log::{error, info};
 use thiserror::Error;
 
 const BLOCK_SIZE: usize = 16;
@@ -29,32 +30,38 @@ enum StreamError {
 
 const SERVER_ADDR: &str = "127.0.0.1:3000";
 
-fn main() -> Result<(), StreamError> {
+fn runner(mut stream: TcpStream) -> Result<(), StreamError> {
+    info!("Connection Established: {SERVER_ADDR}");
+
+    let mut handshake = Handshake::new(&SIGNING_KEY)?;
+
+    stream.write_all(&handshake.send())?;
+
+    let mut pub_key = [0; 129];
+    stream.read_exact(&mut pub_key)?;
+
+    let cipher = handshake.receive(&pub_key)?;
+
+    info!("Handshake Complete!");
+
+    loop {
+        let mut buf = [32; BLOCK_SIZE];
+        _ = stdin().read(&mut buf)?;
+        cipher.encrypt_block(Block::from_mut_slice(&mut buf));
+
+        stream.write_all(&buf)?;
+    }
+}
+
+fn main() {
+    env_logger::init();
+
     match TcpStream::connect(SERVER_ADDR) {
-        Ok(mut stream) => {
-            println!("Connection Established: {SERVER_ADDR}");
-
-            let mut handshake = Handshake::new(&SIGNING_KEY)?;
-
-            stream.write_all(&handshake.public_key())?;
-
-            let mut pub_key = [0; 129];
-            stream.read_exact(&mut pub_key)?;
-
-            let cipher = handshake.handshake(&pub_key)?;
-
-            println!("Key Exchange Complete!");
-
-            loop {
-                let mut buf = [32; BLOCK_SIZE];
-                _ = stdin().read(&mut buf)?;
-                cipher.encrypt_block(Block::from_mut_slice(&mut buf));
-
-                stream.write_all(&buf)?;
+        Ok(stream) => {
+            if let Err(err) = runner(stream) {
+                error!("Stream Error: {err}");
             }
         }
-        Err(err) => println!("Error connecting to {SERVER_ADDR}: {err}"),
+        Err(err) => error!("Error connecting to {SERVER_ADDR}: {err}"),
     }
-
-    Ok(())
 }
